@@ -122,9 +122,12 @@ def clear_directory(
   folder_contents = res.generic.output.decode().replace("\r", "").strip()
 
   if folder_contents:
+    # `rm -rf` (with `-f`) tolerates an empty directory: when the glob has no
+    # matches the shell passes the literal `*` and `rm -f` silently ignores the
+    # nonexistent path instead of erroring with "No such file or directory".
     adb_utils.check_ok(
         adb_utils.issue_generic_request(
-            ["shell", "rm", "-r", f"{directory_path}/*"],
+            ["shell", "rm", "-rf", f"{directory_path}/*"],
             env,
         ),
         f"Failed to clear directory {directory_path}.",
@@ -580,7 +583,9 @@ def check_file_content(
     )
     res_content = res.generic.output.decode().replace("\r", "")
     if exact_match:
-      return res_content == content
+      # 忽略末尾换行：文件结尾是否带 \n 不影响内容意图或展示（echo 创建文件时
+      # 会天然补一个 EOF 换行，agent 重写时可能丢失，不应因此判失败）。
+      return res_content.rstrip("\n") == content.rstrip("\n")
     return fuzzy_match_lib.fuzzy_match(res_content.strip(), content)
   except errors.AdbControllerError as e:
     print(e)
