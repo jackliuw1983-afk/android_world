@@ -222,9 +222,10 @@ def _filter_tasks(
 
 def _run_task(
     task: TaskEvalType,
-    run_episode: Callable[[TaskEvalType], episode_runner.EpisodeResult],
+    run_episode: Callable[[TaskEvalType, int], episode_runner.EpisodeResult],
     env: interface.AsyncEnv,
     demo_mode: bool,
+    instance_id: int = 0,
 ) -> dict[str, Any]:
   """Runs a task.
 
@@ -244,7 +245,7 @@ def _run_task(
   try:
     task.initialize_task(env)
     _log_and_print('Running task %s with goal "%s"', task.name, task.goal)
-    interaction_results = run_episode(task)
+    interaction_results = run_episode(task, instance_id)
     task_successful = task.is_successful(env)
   except Exception as e:  # pylint: disable=broad-exception-caught
     _log_and_print('%s\nSKIPPING %s.', '~' * 80, task.name)
@@ -318,7 +319,7 @@ def _get_task_info(
 
 def _run_task_suite(
     suite: Suite,
-    run_episode: Callable[[task_eval.TaskEval], episode_runner.EpisodeResult],
+    run_episode: Callable[[task_eval.TaskEval, int], episode_runner.EpisodeResult],
     env: interface.AsyncEnv,
     checkpointer: checkpointer_lib.Checkpointer = checkpointer_lib.NullCheckpointer(),
     demo_mode: bool = False,
@@ -391,7 +392,9 @@ def _run_task_suite(
         _log_and_print('Skipping already processed task %s', instance_name)
         continue
 
-      episode = _run_task(instance, run_episode, env, demo_mode=demo_mode)
+      episode = _run_task(
+          instance, run_episode, env, demo_mode=demo_mode, instance_id=i
+      )
       if (
           episode.get(constants.EpisodeConstants.EXCEPTION_INFO) is None
           and check_episode_fn is not None
@@ -450,9 +453,16 @@ def run(
     Step-by-step data from each episode.
   """
 
-  def run_episode(task: task_eval.TaskEval) -> episode_runner.EpisodeResult:
+  def run_episode(
+      task: task_eval.TaskEval, instance_id: int
+  ) -> episode_runner.EpisodeResult:
     if demo_mode:
       _display_goal(agent.env, task)
+    # Let agents that care (e.g. MicarAgent) know the current task instance, so
+    # they can associate per-task artifacts (HTML reports) with the checkpoint
+    # instance (e.g. "ContactsAddContact_0").
+    if hasattr(agent, 'set_task_name'):
+      agent.set_task_name(f'{task.name}_{instance_id}')
     return episode_runner.run_episode(
         goal=task.goal,
         agent=agent,

@@ -258,15 +258,22 @@ class Gpt4Wrapper(LlmWrapper, MultimodalLlmWrapper):
       self,
       model_name: str,
       max_retry: int = 3,
-      temperature: float = 0.0,
+      temperature: float | None = None,
   ):
     if 'OPENAI_API_KEY' not in os.environ:
       raise RuntimeError('OpenAI API key not set.')
     self.openai_api_key = os.environ['OPENAI_API_KEY']
+    base = os.environ.get('OPENAI_BASE_URL', 'https://api.openai.com/v1').rstrip('/')
+    self.base_url = (
+        base if base.endswith('/chat/completions') else base + '/chat/completions'
+    )
     if max_retry <= 0:
       max_retry = 3
       print('Max_retry must be positive. Reset it to 3')
     self.max_retry = min(max_retry, 5)
+    if temperature is None:
+      _t = os.environ.get('LLM_TEMPERATURE')
+      temperature = float(_t) if _t is not None else None
     self.temperature = temperature
     self.model = model_name
 
@@ -290,7 +297,6 @@ class Gpt4Wrapper(LlmWrapper, MultimodalLlmWrapper):
 
     payload = {
         'model': self.model,
-        'temperature': self.temperature,
         'messages': [{
             'role': 'user',
             'content': [
@@ -299,6 +305,13 @@ class Gpt4Wrapper(LlmWrapper, MultimodalLlmWrapper):
         }],
         'max_tokens': 1000,
     }
+    if self.temperature is not None:
+      payload['temperature'] = self.temperature
+    if os.environ.get('LLM_DEBUG') == '1':
+      print('\n===== LLM CALL =====')
+      print(f'url={self.base_url} model={self.model} images={len(images)}')
+      print('--- prompt ---')
+      print(text_prompt)
 
     # Gpt-4v supports multiple images, just need to insert them in the content
     # list.
@@ -315,16 +328,16 @@ class Gpt4Wrapper(LlmWrapper, MultimodalLlmWrapper):
     while counter > 0:
       try:
         response = requests.post(
-            'https://api.openai.com/v1/chat/completions',
+            self.base_url,
             headers=headers,
             json=payload,
         )
         if response.ok and 'choices' in response.json():
-          return (
-              response.json()['choices'][0]['message']['content'],
-              None,
-              response,
-          )
+          content = response.json()['choices'][0]['message']['content']
+          if os.environ.get('LLM_DEBUG') == '1':
+            print('--- response ---')
+            print(content)
+          return (content, None, response)
         print(
             'Error calling OpenAI API with error message: '
             + response.json()['error']['message']

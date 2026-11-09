@@ -33,6 +33,7 @@ from android_world.agents import base_agent
 from android_world.agents import human_agent
 from android_world.agents import infer
 from android_world.agents import m3a
+from android_world.agents import micar_agent
 from android_world.agents import random_agent
 from android_world.agents import seeact
 from android_world.agents import t3a
@@ -130,6 +131,40 @@ _OUTPUT_PATH = flags.DEFINE_string(
 # Agent specific.
 _AGENT_NAME = flags.DEFINE_string('agent_name', 'm3a_gpt4v', help='Agent name.')
 
+_MICAR_AGENT_OUTPUT_DIR = flags.DEFINE_string(
+    'micar_agent_output_dir',
+    '',
+    'Directory for the micar_agent to save its per-task logs and Midscene HTML'
+    ' reports. If empty, the agent streams its logs to stdout only. Applies to'
+    ' both single-task and full-dataset runs.',
+)
+_MICAR_AGENT_MODEL = flags.DEFINE_string(
+    'micar_agent_model',
+    '',
+    'Model name or alias to pass to the micar_agent (--model). If empty, micar'
+    ' uses its own default (config.DEFAULT_MODEL). Accepts aliases such as'
+    ' "mimo" or full model IDs such as "xiaomi/mimo-v2.6-flash".',
+)
+_MICAR_AGENT_MAX_TURNS = flags.DEFINE_integer(
+    'micar_agent_max_turns',
+    0,
+    'Maximum number of interaction turns for the micar_agent (passed as'
+    ' --max-turns). If 0, micar uses its own default (config.MAX_TURNS).',
+)
+_MICAR_THINKING_MODE = flags.DEFINE_string(
+    'micar_thinking_mode',
+    '',
+    'Thinking mode to pass to the micar_agent as the THINKING_MODE env var'
+    ' (enabled / disabled). If empty, micar uses its own default (config,'
+    ' falling back to the caller\'s THINKING_MODE env var).',
+)
+_MICAR_AGENT_USE_A11Y = flags.DEFINE_boolean(
+    'micar_agent_use_a11y',
+    False,
+    'Enable the micar_agent\'s a11y fast path (--use-a11y true): accessibility'
+    ' tree element list + tap_path batch tool. Android only.',
+)
+
 _FIXED_TASK_SEED = flags.DEFINE_boolean(
     'fixed_task_seed',
     False,
@@ -172,12 +207,22 @@ def _get_agent(
     )
   # GPT.
   elif _AGENT_NAME.value == 't3a_gpt4':
-    agent = t3a.T3A(env, infer.Gpt4Wrapper('gpt-4-turbo-2024-04-09'))
+    agent = t3a.T3A(env, infer.Gpt4Wrapper(os.environ.get('LLM_MODEL_NAME', 'gpt-4-turbo-2024-04-09')))
   elif _AGENT_NAME.value == 'm3a_gpt4v':
-    agent = m3a.M3A(env, infer.Gpt4Wrapper('gpt-4-turbo-2024-04-09'))
+    agent = m3a.M3A(env, infer.Gpt4Wrapper(os.environ.get('LLM_MODEL_NAME', 'gpt-4-turbo-2024-04-09')))
   # SeeAct.
   elif _AGENT_NAME.value == 'seeact':
     agent = seeact.SeeAct(env)
+  # Micar (external Claude + Midscene agent driving the device via adb).
+  elif _AGENT_NAME.value == 'micar_agent':
+    agent = micar_agent.MicarAgent(
+        env,
+        output_dir=_MICAR_AGENT_OUTPUT_DIR.value or None,
+        model=_MICAR_AGENT_MODEL.value or None,
+        max_turns=_MICAR_AGENT_MAX_TURNS.value or None,
+        thinking_mode=_MICAR_THINKING_MODE.value or None,
+        use_a11y=_MICAR_AGENT_USE_A11Y.value,
+    )
 
   if not agent:
     raise ValueError(f'Unknown agent: {_AGENT_NAME.value}')
