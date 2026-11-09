@@ -23,3 +23,11 @@ poetry.lock
 
 # PyCharm
 .idea
+
+# Generated protobuf bindings (see setup.py generate_protos).
+*_pb2.py
+*_pb2_grpc.py
+
+# Runtime / eval output artifacts.
+eval_result/
+test/
