@@ -643,7 +643,10 @@ class MarkorMergeNotes(Markor):
         "file1_name": _generate_random_note().name,
         "file2_name": _generate_random_note().name,
         "file3_name": _generate_random_note().name,
-        "new_file_name": user_data_generation.generate_random_string(8),
+        "new_file_name": (
+            user_data_generation.generate_random_string(8)
+            + random.choice([".md", ".txt"])
+        ),
         "file1_content": user_data_generation.generate_random_string(20),
         "file2_content": user_data_generation.generate_random_string(20),
         "file3_content": user_data_generation.generate_random_string(20),
