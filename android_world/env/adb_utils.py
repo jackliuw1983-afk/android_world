@@ -910,7 +910,13 @@ def get_api_level(env: env_interface.AndroidEnvInterface) -> int:
   )
   if version.status != adb_pb2.AdbResponse.Status.OK:
     raise RuntimeError('Failed to get API level.')
-  return int(version.generic.output)
+  output = version.generic.output
+  if isinstance(output, bytes):
+    output = output.decode('utf-8')
+  # `getprop` prints the API level as the last token; the payload can be
+  # polluted with gRPC log lines (e.g. "FD from fork parent still in poll
+  # list") when the emulator connection is inherited across a fork.
+  return int(output.split()[-1])
 
 
 def _toggle_svc(

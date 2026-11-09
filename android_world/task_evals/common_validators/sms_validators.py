@@ -229,7 +229,15 @@ class SimpleSMSSendSms(task_eval.TaskEval):
     adb_output = adb_utils.issue_generic_request(
         ["shell", "date", "+%s"], env
     )  # Fetch UNIX timestamp from Android
-    return int(adb_output.generic.output.strip()) * 1000
+    output = adb_output.generic.output
+    if isinstance(output, bytes):
+      output = output.decode('utf-8')
+    # `date +%s` prints a single integer, but the adb payload can be polluted
+    # with gRPC log lines (e.g. "FD from fork parent still in poll list") when
+    # the emulator connection is inherited across a fork. Parse the trailing
+    # epoch-seconds token instead of the whole payload.
+    timestamp = output.split()[-1]
+    return int(timestamp) * 1000
 
   def initialize_task(self, env: interface.AsyncEnv) -> None:
     super().initialize_task(env)

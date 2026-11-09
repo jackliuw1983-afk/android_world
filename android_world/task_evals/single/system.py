@@ -44,7 +44,10 @@ class _SystemBrightnessToggle(task_eval.TaskEval):
         ['shell', 'settings', 'get', 'system', 'screen_brightness'],
         env.controller,
     )
-    brightness_level = int(res.generic.output.decode().strip())
+    # `settings get` prints the value as the last token; the payload can be
+    # polluted with gRPC log lines (e.g. "FD from fork parent still in poll
+    # list") when the emulator connection is inherited across a fork.
+    brightness_level = int(res.generic.output.decode().split()[-1])
 
     if self.params['max_or_min'] == 'max':
       return 1.0 if brightness_level == 255 else 0.0
@@ -133,7 +136,10 @@ class _SystemWifiToggle(task_eval.TaskEval):
     res = adb_utils.issue_generic_request(
         ['shell', 'settings', 'get', 'global', 'wifi_on'], env.controller
     )
-    wifi_status = res.generic.output.decode().strip()
+    # `settings get` prints the value as the last token; the payload can be
+    # polluted with gRPC log lines (e.g. "FD from fork parent still in poll
+    # list") when the emulator connection is inherited across a fork.
+    wifi_status = res.generic.output.decode().split()[-1]
 
     if self.params['on_or_off'] == 'on':
       # WiFi is on when the value is either 1 or 2. If Airplane mode is on, and
@@ -225,7 +231,10 @@ class _SystemBluetoothToggle(task_eval.TaskEval):
     res = adb_utils.issue_generic_request(
         ['shell', 'settings', 'get', 'global', 'bluetooth_on'], env.controller
     )
-    bluetooth_status = res.generic.output.decode().strip()
+    # `settings get` prints the value as the last token; the payload can be
+    # polluted with gRPC log lines (e.g. "FD from fork parent still in poll
+    # list") when the emulator connection is inherited across a fork.
+    bluetooth_status = res.generic.output.decode().split()[-1]
     expected_status = '1' if self.params['on_or_off'] == 'on' else '0'
     return 1.0 if bluetooth_status == expected_status else 0.0
 
