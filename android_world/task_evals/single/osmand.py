@@ -24,6 +24,7 @@ from android_env import env_interface
 from android_env.proto import adb_pb2
 from android_world.env import adb_utils
 from android_world.env import interface
+from android_world.env.setup_device import apps
 from android_world.task_evals import task_eval
 from android_world.task_evals.common_validators import sqlite_validators
 from android_world.task_evals.utils import sqlite_schema_utils
@@ -201,6 +202,11 @@ class _OsmTaskEval(task_eval.TaskEval):
   """Base class for Osm-related TaskEvals."""
 
   app_names = ('osmand',)
+
+  def initialize_task(self, env: interface.AsyncEnv) -> None:
+    """Initializes the task, ensuring the offline map is on-device first."""
+    super().initialize_task(env)
+    apps.OsmAndApp.ensure_map_present(env)
 
 
 class OsmAndFavorite(_OsmTaskEval):

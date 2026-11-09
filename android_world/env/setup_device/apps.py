@@ -551,37 +551,32 @@ class OsmAndApp(AppSetup):
 
   MAP_NAMES = ("Liechtenstein_europe.obf",)
 
+  # Logcat markers OsmAnd emits once the built-in basemap has been decompressed
+  # and the offline map has been indexed. Both are `net.osmand` Debug-level
+  # lines printed during startup indexing.
+  _READY_MARKERS = ("World_basemap_mini.obf", "Liechtenstein_europe.obf")
+
   apk_names = ("net.osmand-4.6.13.apk",)
   app_name = "osmand"
 
   @classmethod
-  def setup(cls, env: interface.AsyncEnv) -> None:
-    super().setup(env)
-    adb_utils.launch_app(cls.app_name, env.controller)
-    time.sleep(2.0)
-
-    try:
-      controller = tools.AndroidToolController(env=env.controller)
-      controller.click_element("SKIP DOWNLOAD")
-      time.sleep(2.0)
-    except ValueError:
-      logging.warn(
-          "First time setup did not click through all anticipated screens."
-      )
-    finally:
-      adb_utils.close_app(cls.app_name, env.controller)
-
-    # Grant permissions for OsmAnd mapping app.
-    package = adb_utils.extract_package_name(
-        adb_utils.get_adb_activity(cls.app_name)  # pyrefly: ignore[bad-argument-type]
+  def _map_file_paths(cls) -> tuple[str, ...]:
+    """Absolute on-device paths of the offline map files."""
+    return tuple(
+        file_utils.convert_to_posix_path(cls.DEVICE_MAPS_PATH, map_file)
+        for map_file in cls.MAP_NAMES
     )
-    for permission in cls.PERMISSIONS:
-      adb_utils.grant_permissions(package, permission, env.controller)
 
-    # Copy maps to data directory.
+  @classmethod
+  def _copy_map_data_to_device(cls, env: interface.AsyncEnv) -> None:
+    """Creates the maps directory and copies the offline map to the device.
+
+    OsmAnd only scans its maps directory during startup, so this must run
+    *before* the app is launched for the first time after clearing app data.
+    """
+    file_utils.mkdir(cls.DEVICE_MAPS_PATH, env.controller)
     cls._copy_data_to_device(cls.MAP_NAMES, cls.DEVICE_MAPS_PATH, env)
-
-    # Make sure security context is correct so that the files can be accessed.
+    # Make sure the security context is correct so OsmAnd can read the files.
     for map_file in cls.MAP_NAMES:
       adb_utils.check_ok(
           adb_utils.issue_generic_request(
@@ -597,7 +592,86 @@ class OsmAndApp(AppSetup):
           )
       )
 
+  @classmethod
+  def ensure_map_present(cls, env: interface.AsyncEnv) -> None:
+    """Ensures the offline map is on-device, copying it if necessary.
+
+    This is a lightweight guard for task initialization: the map lives in
+    external app-specific storage, which is not covered by the app snapshot, so
+    it can be lost if the emulator is restarted. Copying it here guarantees the
+    map is present before each task's agent launches OsmAnd.
+    """
+    if all(
+        file_utils.check_file_exists(path, env.controller)
+        for path in cls._map_file_paths()
+    ):
+      return
+    cls._copy_map_data_to_device(env)
+
+  @classmethod
+  def _wait_until_map_ready(
+      cls, env: interface.AsyncEnv, timeout_sec: float = 60.0
+  ) -> bool:
+    """Polls logcat until OsmAnd has decompressed the basemap and indexed the map.
+
+    Args:
+      env: The Android environment.
+      timeout_sec: Maximum time to wait before giving up.
+
+    Returns:
+      True if the map became ready within the timeout, False otherwise.
+    """
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+      response = adb_utils.issue_generic_request(
+          ["logcat", "-d", "-s", "net.osmand:D"], env.controller
+      )
+      logcat = response.generic.output.decode(errors="ignore")
+      if all(marker in logcat for marker in cls._READY_MARKERS):
+        logging.info("OsmAnd offline map is ready.")
+        return True
+      time.sleep(1.0)
+    logging.warning(
+        "Timed out after %s seconds waiting for OsmAnd map data to be ready.",
+        timeout_sec,
+    )
+    return False
+
+  @classmethod
+  def ensure_map_ready(cls, env: interface.AsyncEnv) -> None:
+    """Copies the offline map and waits for OsmAnd to index it.
+
+    Used during one-time emulator setup: grants permissions, copies the map,
+    then launches OsmAnd (dismissing the first-run wizard) and waits for the
+    built-in basemap to be decompressed and the offline map indexed.
+    """
+    package = adb_utils.extract_package_name(
+        adb_utils.get_adb_activity(cls.app_name)  # pyrefly: ignore[bad-argument-type]
+    )
+    for permission in cls.PERMISSIONS:
+      adb_utils.grant_permissions(package, permission, env.controller)
+
+    cls._copy_map_data_to_device(env)
+
+    # Clear logcat so the readiness poll only observes fresh markers.
+    adb_utils.issue_generic_request(["logcat", "-c"], env.controller)
+
+    adb_utils.launch_app(cls.app_name, env.controller)
+    time.sleep(2.0)
+    try:
+      controller = tools.AndroidToolController(env=env.controller)
+      controller.click_element("SKIP DOWNLOAD")
+    except ValueError:
+      logging.warn(
+          "First time setup did not click through all anticipated screens."
+      )
+    cls._wait_until_map_ready(env)
     adb_utils.close_app(cls.app_name, env.controller)
+
+  @classmethod
+  def setup(cls, env: interface.AsyncEnv) -> None:
+    super().setup(env)  # Clears app data via `pm clear`.
+    cls.ensure_map_ready(env)
 
 
 class OpenTracksApp(AppSetup):
