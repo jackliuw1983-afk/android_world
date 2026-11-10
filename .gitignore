@@ -31,3 +31,7 @@ poetry.lock
 # Runtime / eval output artifacts.
 eval_result/
 test/
+
+# Local analysis / working notes (not for the public fork).
+docs/androidworld_scoring_fixes.md
+docs/leaderboard_submission_email.md
